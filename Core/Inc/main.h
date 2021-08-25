@@ -32,6 +32,8 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "printf.h"
+#include "debug.h"
 
 /* USER CODE END Includes */
 
@@ -42,6 +44,19 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
+
+// Linkerscript defines 64 bytes (16 uint32s) that are never initialized
+// from 0x20000000 to 0x2000003F. These defines are 'variables' located there
+// that we can use for various things.
+
+#define BL_FORCE_RUN_MAGIC  0xFEEDBEEF
+
+// When run, bootloader looks for this to be BL_FORCE_RUN_MAGIC and if so forces
+// bootloader mode to be entered
+#define BL_FORCE_RAMLOC     (*((volatile uint32_t *) 0x20000000))
+
+// Keeps track of time between RST button pushes
+#define BL_RST_CNT_RAMLOC   (*((volatile uint32_t *) 0x20000004))
 
 /* USER CODE END EC */
 

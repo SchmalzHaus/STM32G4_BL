@@ -43,10 +43,15 @@ _Min_Heap_Size = 0x200 ; /* required amount of heap */
 _Min_Stack_Size = 0x400 ; /* required amount of stack */
 
 /* Memories definition */
+/*  
+  NO_INIT_RAM  (rw)    : ORIGIN = 0x20000000,   LENGTH =   64
+  RAM         (xrw)    : ORIGIN = 0x20000040,   LENGTH = (128K - 64) 
+  */
 MEMORY
 {
-  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 128K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 256K
+  NO_INIT_RAM  (rw)    : ORIGIN = 0x20000000,   LENGTH =   64
+  RAM         (xrw)    : ORIGIN = 0x20000040,   LENGTH = 128K - 64 
+  FLASH        (rx)    : ORIGIN = 0x08000000,   LENGTH =  32K
 }
 
 /* Sections */
@@ -146,6 +151,24 @@ SECTIONS
     _edata = .;        /* define a global symbol at data end */
 
   } >RAM AT> FLASH
+
+  /* Noinit, noload RAM section for passing commands to/from APP */
+  .noinit (NOLOAD):
+  {
+    . = ALIGN(4);
+    _noinit = .;
+
+    *(.noinit .noinit.*)
+
+    . = ALIGN(4) ;
+    _end_noinit = .;
+  } > NO_INIT_RAM
+
+  /* Mandatory to be word aligned, _sbrk assumes this */
+  PROVIDE ( end = _end_noinit );
+  PROVIDE ( _end = _end_noinit );
+  PROVIDE ( __end = _end_noinit );
+  PROVIDE ( __end__ = _end_noinit );
 
   /* Uninitialized data section into "RAM" Ram type memory */
   . = ALIGN(4);

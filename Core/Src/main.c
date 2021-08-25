@@ -81,17 +81,13 @@ void jmp_to_appcode()
 {
   /* Function pointer to the address of the user application. */
   uint32_t jump_addr = *((__IO uint32_t*)(APP_ADDR+4u));
+  __disable_irq();
   HAL_DeInit();
   /* Change the main stack pointer. */
   __set_MSP(*(__IO uint32_t*)APP_ADDR);
   SCB->VTOR = APP_ADDR;
   
   ((void (*) (void)) (jump_addr)) ();
-}
-
-bool is_button_down()
-{
-  return (HAL_GPIO_ReadPin(BTLDR_EN_GPIO_Port, BTLDR_EN_Pin) == GPIO_PIN_RESET);
 }
 
 /* USER CODE END 0 */
@@ -124,17 +120,18 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  // MX_USB_Device_Init();
+  //MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
   /* The above call to MX_USB_Device_Init(); needs to be commented out. CubeMX will put it back, but we need
    * to conditionally init USB only if we need to actually run the bootloader.
    */
+  Debug_SWOInit(0x00000001, 170000000, 2000000);
 
   /*
    * TODO: Make a 10 minute timeout for waiting for the user to copy a file over. If, after that time, there is no
    * file copied, then jump to the app (if it exists)
    *
-   * TODO: Remove is_button_down() as trigger
+   * TODO: Remove is_button_down() as trigger (done)
    *
    * TODO: Add 'double tap on reset button' as trigger (how?)
    *
@@ -142,16 +139,49 @@ int main(void)
    *
    * TODO: Add support for UF2 files (stretch goal)
    *
+   * TODO: Add magic number method for APP to trigger bootloader
+   *
+   * TODO: Figure out how to make SWO work no matter if DEBUG/RELEASE or if debugger is connected or not
+   *
    * TODO: Why is bootloader so big? Use ll libraries instead? How to shrink? (orig was 16KB)
    *
    */
 
-  if(!is_appcode_exist() || is_button_down())
+  if(!is_appcode_exist() || (BL_FORCE_RAMLOC == BL_FORCE_RUN_MAGIC))
+//  if(!is_appcode_exist())
   {
+    uint32_t blink_time = HAL_GetTick();
+
+    // Configure the Bootloader LED to be an output
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    HAL_GPIO_WritePin(BOOTLOADER_LED_PORT, BOOTLOADER_LED_PIN, GPIO_PIN_SET);
+    GPIO_InitStruct.Pin = BOOTLOADER_LED_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(BOOTLOADER_LED_PORT, &GPIO_InitStruct);
+
+    // Clear the BL_FORCE ram location so that we don't do this again
+    BL_FORCE_RAMLOC = 0x00000000;
+
     printf("Entering bootloader\n");
+
     MX_USB_Device_Init();
     while(1)
     {
+      if ((HAL_GetTick() - blink_time) > 1000)
+      {
+        if (HAL_GPIO_ReadPin(BOOTLOADER_LED_PORT, BOOTLOADER_LED_PIN) == GPIO_PIN_SET)
+        {
+          HAL_GPIO_WritePin(BOOTLOADER_LED_PORT, BOOTLOADER_LED_PIN, GPIO_PIN_RESET);
+        }
+        else
+        {
+          HAL_GPIO_WritePin(BOOTLOADER_LED_PORT, BOOTLOADER_LED_PIN, GPIO_PIN_SET);
+        }
+        blink_time = HAL_GetTick();
+      }
     }
   }
   else
@@ -185,19 +215,20 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
+  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSI48;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 12;
+  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV4;
+  RCC_OscInitStruct.PLL.PLLN = 85;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV6;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -207,19 +238,19 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
   {
     Error_Handler();
   }
   /** Initializes the peripherals clocks
   */
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
-  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL;
+  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_HSI48;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -227,15 +258,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-int _write(int32_t file, uint8_t *ptr, int32_t len)
-{
-    for (int i = 0; i < len; i++)
-    {
-        ITM_SendChar(*ptr++);
-    }
-    return len;
-}
 
 /* USER CODE END 4 */
 
